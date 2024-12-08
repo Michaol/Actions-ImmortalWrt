@@ -10,12 +10,9 @@
 # See /LICENSE for more information.
 #
 
-# Uncomment a feed source
-#sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default
-#sed -i '2s/^/#/' feeds.conf.default
-#sed -i '3s/^#//' feeds.conf.default
+# drop mosdns and v2ray-geodata packages that come with the source
+find ./ | grep Makefile | grep v2ray-geodata | xargs rm -f
+find ./ | grep Makefile | grep mosdns | xargs rm -f
 
-# Add a feed source
-# echo 'src-git helloworld https://github.com/fw876/helloworld' >>feeds.conf.default
-# echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main' >>feeds.conf.default
-# echo 'src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main' >>feeds.conf.default
+git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
+git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
