@@ -25,3 +25,9 @@ find ./ | grep Makefile | grep mosdns | xargs rm -f
 
 git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
+
+# Replace passwall
+rm -rf feeds/luci/applications/luci-app-passwall
+git clone -b main https://github.com/xiaorouji/openwrt-passwall.git feeds/luci/applications/passwall
+mv feeds/luci/applications/passwall/luci-app-passwall feeds/luci/applications/
+rm -rf feeds/luci/applications/passwall
