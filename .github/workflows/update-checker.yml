@@ -1,8 +1,8 @@
 #
 # https://github.com/P3TERX/Actions-OpenWrt
 #
-# File: .github/workflows/update-checker.yml
-# Description: Source code update checker
+# File: .github/workflows/openwrt-bulder.yml
+# Description: Build OpenWrt using GitHub Actions
 #
 # Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
 #
@@ -10,50 +10,215 @@
 # See /LICENSE for more information.
 #
 
-name: Update Checker
-
-env:
-  REPO_URL: https://github.com/coolsnowwolf/lede
-  REPO_BRANCH: master
+name: OpenWrt Builder
 
 on:
+  repository_dispatch:
   workflow_dispatch:
-#  schedule:
-#    - cron: 0 */18 * * *
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: master
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: .config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: false
+  TZ: Asia/Shanghai
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-24.04 # 确保你已检查过 GitHub Actions 文档，这个标签是最新的且可用的
 
     steps:
+    - name: Checkout
+      uses: actions/checkout@v4 # 推荐使用特定版本号，目前 v4 是最新稳定版本
 
-    - name: Get Commit Hash
-      id: getHash
-      run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH .
-        echo "commitHash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+    ---
 
-    - name: Compare Commit Hash
-      id: cacheHash
-      uses: actions/cache@v3
+    ## 最大化释放磁盘空间
+
+    此部分是为 OpenWrt 编译任务最大化释放 Runner 磁盘空间的核心优化。
+
+    - name: Free Up Disk Space (Early Stage)
+      uses: jlumbroso/free-disk-space@main # 确保使用此 Action 的最新 main 分支
       with:
-        path: .commitHash
-        key: commitHash_${{ steps.getHash.outputs.commitHash }}
+        # 启用清理所有不需要的组件，最大化可用空间
+        docker-images: true # 清理 Docker 镜像
+        android-sdk: true # 启用清理 Android SDK
+        tool-cache: true # 谨慎启用，清除预安装的工具缓存（如特定版本的Go/Python/Node等），如果你的构建不依赖这些，可以释放大量空间
+        haskell: true
+        codeql: true
+        go: true
+        dotnet: true
+        ruby: true
+        swift: true
+        large-packages: true # 移除一些大型的预安装包
+        apt: true # 清理 apt 缓存
 
-    - name: Save New Commit Hash
-      if: steps.cacheHash.outputs.cache-hit != 'true'
+    - name: Custom Cleanup (Manual)
       run: |
-        echo ${{ steps.getHash.outputs.commitHash }} | tee .commitHash
+        # 补充 jlumbroso/free-disk-space 可能未覆盖到的路径
+        sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo apt autoremove --purge -y # 清理不再需要的依赖包
 
-    - name: Trigger build
-      if: steps.cacheHash.outputs.cache-hit != 'true'
-      uses: peter-evans/repository-dispatch@v2
+    ---
+
+    ## 环境初始化
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        # jlumbroso/free-disk-space@main 已经清理了 apt 缓存，这里无需再次 update
+        sudo -E apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-setuptools rsync swig unzip zlib1g-dev file wget
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
+        df -hT $PWD # 再次检查空间，确认清理效果
+
+    ---
+
+    ## 获取 OpenWrt 源码及配置
+
+    - name: Clone source code
+      working-directory: /workdir
+      run: |
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+
+    - name: Cache
+      uses: klever1988/cachewrtbuild@main # 针对 OpenWrt 构建的专用缓存 Action
       with:
-        token: ${{ github.token }}
-        event-type: Source Code Update
+        ccache: 'true'
+        prefix: ${{ github.workspace }}/openwrt
+
+    - name: Load custom feeds
+      run: |
+        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        chmod +x $DIY_P1_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+
+    - name: Update feeds
+      run: cd openwrt && ./scripts/feeds update -a
+
+    - name: Install feeds
+      run: cd openwrt && ./scripts/feeds install -a
+
+    - name: Load custom configuration
+      run: |
+        [ -e files ] && mv files openwrt/files
+        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+        chmod +x $DIY_P2_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P2_SH
+
+    ---
+
+    ## 下载软件包及编译
+
+    - name: Download package
+      id: package
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j$(nproc) # 利用多核并行下载
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile the firmware
+      id: compile
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc)
+        echo "status=success" >> $GITHUB_OUTPUT
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+    ---
+
+    ## 编译后清理与上传
+
+    - name: Clean Build Directory after Compile
+      if: steps.compile.outputs.status == 'success' # 仅在编译成功后清理，避免影响调试
+      run: |
+        echo "Cleaning up build artifacts to save space..."
+        cd openwrt
+        # 删除所有中间编译文件，只保留 bin 和 dl
+        rm -rf build_dir/* # 删除所有架构的编译中间文件
+        rm -rf staging_dir/* # 删除所有架构的 staging 文件
+        # rm -rf tmp # 编译成功后，tmp 目录也可以删除
+        # rm -rf logs # 编译日志也可以删除
+        # rm -rf dl # 如果你确定 dl 目录不再需要，可以删除
+        df -hT $PWD # 再次检查空间使用情况
+
+    - name: Check space usage (End of Job)
+      if: (!cancelled())
+      run: df -hT
+
+    - name: Upload bin directory
+      uses: actions/upload-artifact@v4 # 最新稳定版本 v4
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+      with:
+        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: openwrt/bin
+
+    - name: Organize files
+      id: organize
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages # 再次清理 packages 目录
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware directory
+      uses: actions/upload-artifact@v4 # 最新稳定版本 v4
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: OpenWrt_firmware${{ env.FIRMWARE }}
+
+    ---
+
+    ## Release 及旧工作流/Release 清理
+
+    - name: Generate release tag
+      id: tag
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      run: |
+        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        touch release.txt
+        # 移除 GoFile 相关代码，因为它在你的 env 中未定义且无 gpfifo 步骤
+        # [ ${UPLOAD_GOFILE} = true && ${{ steps.gofile.outputs.url }} ] && echo "🔗 [GoFile](${{ steps.gofile.outputs.url }})" >> release.txt
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware to release
+      uses: softprops/action-gh-release@v1 # 建议升级到 @v2
+      if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: ${{ env.FIRMWARE }}/*
 
     - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
+      uses: Mattraks/delete-workflow-runs@v2 # 最新稳定版本 v2
       with:
         retain_days: 0
         keep_minimum_runs: 2
+
+    - name: Remove old Releases
+      # 注意：dev-drprasad/delete-older-releases 仓库已不再维护
+      uses: dev-drprasad/delete-older-releases@v0.3.4
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      with:
+        keep_latest: 3
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
