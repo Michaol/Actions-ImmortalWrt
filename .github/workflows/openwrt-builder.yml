@@ -41,16 +41,12 @@ jobs:
       uses: jlumbroso/free-disk-space@main # 确保使用此 Action 的最新 main 分支
       with:
         docker-images: true
-        android-sdk: true
+        android: true
         tool-cache: true
         haskell: true
-        codeql: true
-        go: true
         dotnet: true
-        ruby: true
-        swift: true
         large-packages: true
-        apt: true
+        swap-storage: true
 
     - name: Custom Cleanup (Manual)
       run: |
@@ -79,7 +75,7 @@ jobs:
       uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
-        prefix: ${{ github.workspace }}/openwrt
+        prefix: /workdir/openwrt
 
     - name: Load custom feeds
       run: |
