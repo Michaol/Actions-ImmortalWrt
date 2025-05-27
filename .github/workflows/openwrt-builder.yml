@@ -1,7 +1,7 @@
 #
 # https://github.com/P3TERX/Actions-OpenWrt
 #
-# File: .github/workflows/openwrt-builder.yml  (建议文件名)
+# File: .github/workflows/openwrt-builder.yml
 # Description: Build OpenWrt using GitHub Actions
 #
 # Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
@@ -37,40 +37,36 @@ jobs:
       uses: actions/checkout@v4 # 推荐使用特定版本号，目前 v4 是最新稳定版本
 
     # --- 最大化释放磁盘空间 ---
-    # 此部分是为 OpenWrt 编译任务最大化释放 Runner 磁盘空间的核心优化。
     - name: Free Up Disk Space (Early Stage)
       uses: jlumbroso/free-disk-space@main # 确保使用此 Action 的最新 main 分支
       with:
-        # 启用清理所有不需要的组件，最大化可用空间
-        docker-images: true # 清理 Docker 镜像
-        android-sdk: true # 启用清理 Android SDK
-        tool-cache: true # 谨慎启用，清除预安装的工具缓存（如特定版本的Go/Python/Node等），如果你的构建不依赖这些，可以释放大量空间
+        docker-images: true
+        android-sdk: true
+        tool-cache: true
         haskell: true
         codeql: true
         go: true
         dotnet: true
         ruby: true
         swift: true
-        large-packages: true # 移除一些大型的预安装包
-        apt: true # 清理 apt 缓存
+        large-packages: true
+        apt: true
 
     - name: Custom Cleanup (Manual)
       run: |
-        # 补充 jlumbroso/free-disk-space 可能未覆盖到的路径
         sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
-        sudo apt autoremove --purge -y # 清理不再需要的依赖包
+        sudo apt autoremove --purge -y
 
     # --- 环境初始化 ---
     - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        # jlumbroso/free-disk-space@main 已经清理了 apt 缓存，这里无需再次 update
         sudo -E apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-setuptools rsync swig unzip zlib1g-dev file wget
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
-        df -hT $PWD # 再次检查空间，确认清理效果
+        df -hT $PWD
 
     # --- 获取 OpenWrt 源码及配置 ---
     - name: Clone source code
@@ -80,7 +76,7 @@ jobs:
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
     - name: Cache
-      uses: klever1988/cachewrtbuild@main # 针对 OpenWrt 构建的专用缓存 Action
+      uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
         prefix: ${{ github.workspace }}/openwrt
@@ -112,40 +108,62 @@ jobs:
       run: |
         cd openwrt
         make defconfig
-        make download -j$(nproc) # 利用多核并行下载
+        make download -j$(nproc)
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: Compile the firmware
+    - name: Compile the firmware # <--- 主要修改点在此步骤
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) V=s # V=s 参数可以输出更详细的编译日志，方便调试
-        echo "status=success" >> $GITHUB_OUTPUT
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME | tr ' ' '_')" >> $GITHUB_ENV # 将设备名中的空格替换为下划线
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        echo "Attempting multi-threaded compilation... ($(nproc) threads)"
+        if make -j$(nproc); then
+          echo "Multi-threaded compilation successful!"
+          COMPILE_SUCCESS=true
+        else
+          echo "Multi-threaded compilation failed. Retrying with single thread and verbose output..."
+          if make -j1 V=s; then # 或者直接用 make V=s，因为不指定-j时默认为-j1
+            echo "Single-threaded verbose compilation successful!"
+            COMPILE_SUCCESS=true
+          else
+            echo "Compilation failed on both attempts."
+            COMPILE_SUCCESS=false
+            exit 1 # 确保如果两次编译都失败，此步骤以失败状态退出
+          fi
+        fi
+
+        if [ "$COMPILE_SUCCESS" = true ]; then
+          echo "status=success" >> $GITHUB_OUTPUT
+          grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME_TEMP
+          if [ -s DEVICE_NAME_TEMP ]; then
+            SANITIZED_DEVICE_NAME=$(cat DEVICE_NAME_TEMP | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')
+            echo "DEVICE_NAME=_$SANITIZED_DEVICE_NAME" >> $GITHUB_ENV
+            rm DEVICE_NAME_TEMP # 清理临时文件
+          else
+            echo "DEVICE_NAME=_unknown" >> $GITHUB_ENV # 如果无法确定设备名称，则设置一个默认值
+            echo "Warning: Could not determine DEVICE_NAME."
+          fi
+          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        fi
 
     # --- 编译后清理与上传 ---
     - name: Clean Build Directory after Compile
-      if: steps.compile.outputs.status == 'success' # 仅在编译成功后清理，避免影响调试
+      if: steps.compile.outputs.status == 'success'
       run: |
         echo "Cleaning up build artifacts to save space..."
         cd openwrt
-        # 删除所有中间编译文件，只保留 bin 和 dl (如果后续不再需要dl，也可以考虑删除)
-        rm -rf build_dir/* # 删除所有架构的编译中间文件
-        rm -rf staging_dir/* # 删除所有架构的 staging 文件
-        # rm -rf tmp # 编译成功后，tmp 目录也可以删除
-        # rm -rf logs # 编译日志也可以删除
-        # df -hT $PWD # 再次检查空间使用情况
+        rm -rf build_dir/*
+        rm -rf staging_dir/*
+        # rm -rf tmp
+        # rm -rf logs
+        # df -hT $PWD
 
     - name: Check space usage (End of Job)
       if: (!cancelled())
       run: df -hT
 
     - name: Upload bin directory
-      uses: actions/upload-artifact@v4 # 最新稳定版本 v4
+      uses: actions/upload-artifact@v4
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
@@ -153,54 +171,52 @@ jobs:
 
     - name: Organize files for firmware upload
       id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled() # 增加编译成功判断
       run: |
         cd openwrt/bin/targets/*/* # 注意：如果编译多个目标，此通配符可能需要调整
-        rm -rf packages # 通常固件包内不再需要 packages 目录的副本
-        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV # 设置环境变量为当前固件路径
+        rm -rf packages
+        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware directory
-      uses: actions/upload-artifact@v4 # 最新稳定版本 v4
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+      uses: actions/upload-artifact@v4
+      if: steps.organize.outputs.status == 'success' && !cancelled() # organize步骤成功才执行
       with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }} # 修正后的 Artifact 名称
-        path: ${{ env.FIRMWARE_PATH }} # 修正：明确指定上传路径
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: ${{ env.FIRMWARE_PATH }}
 
     # --- Release 及旧工作流/Release 清理 ---
     - name: Generate release tag
       id: tag
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled() # 增加编译成功判断
       run: |
         echo "release_tag=ImmortalWRT_$(date +"%Y.%m.%d-%H%M")${{ env.DEVICE_NAME }}" >> $GITHUB_OUTPUT
-        echo "Release built on $(date +"%Y-%m-%d %H:%M:%S")" > release.txt # Release body 内容
-        # 可在此处添加更多 Release body 内容，例如编译配置摘要等
-        # [ ${UPLOAD_GOFILE} = true && ${{ steps.gofile.outputs.url }} ] && echo "🔗 [GoFile](${{ steps.gofile.outputs.url }})" >> release.txt
+        echo "Release built on $(date +"%Y-%m-%d %H:%M:%S")" > release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
-      uses: softprops/action-gh-release@v2 # 建议使用 v2 或更新版本
-      if: steps.tag.outputs.status == 'success' && !cancelled()
+      uses: softprops/action-gh-release@v2
+      if: steps.tag.outputs.status == 'success' && !cancelled() # tag步骤成功才执行
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
-        files: ${{ env.FIRMWARE_PATH }}/* # 从整理后的固件路径上传所有文件
+        files: ${{ env.FIRMWARE_PATH }}/*
 
     - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2 # 最新稳定版本 v2
+      uses: Mattraks/delete-workflow-runs@v2
       with:
-        token: ${{ secrets.GITHUB_TOKEN }} # Mattraks/delete-workflow-runs@v2 需要 token
-        retain_days: 0 # 设置为0会删除所有旧的 runs (除了keep_minimum_runs指定的)
-        keep_minimum_runs: 2 # 保留最近的2次运行记录
+        token: ${{ secrets.GITHUB_TOKEN }}
+        retain_days: 0
+        keep_minimum_runs: 2
 
     - name: Remove old Releases
-      # 注意：dev-drprasad/delete-older-releases 仓库已不再积极维护，请注意潜在风险或寻找替代方案
+      # 注意：dev-drprasad/delete-older-releases 仓库已不再积极维护
       uses: dev-drprasad/delete-older-releases@v0.3.4
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled() # 增加编译成功判断
       with:
-        keep_latest: 3 # 保留最新的3个Release
-        delete_tags: true # 同时删除旧Release关联的tag
+        keep_latest: 3
+        delete_tags: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
