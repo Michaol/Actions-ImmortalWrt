@@ -54,6 +54,7 @@ jobs:
         # 建议根据你的实际需求，只启用那些你确定不需要的工具清理，以避免不必要的下载。
         # 保持默认（只清理一些通用垃圾）通常就很有帮助。
         # 这里为了最大化，我们默认清理docker images和大型包，以及apt缓存。
+        android-sdk: true
         docker-images: true
         large-packages: true
         apt: true # 清理apt缓存
