@@ -38,7 +38,7 @@ jobs:
 
     # --- 空间清理步骤（优化重点）---
     - name: Free Up Disk Space (Early Stage)
-      uses: jlumbroso/free-disk-space@v5 # 使用专门的 Action 替代部分手动 rm
+      uses: jlumbroso/free-disk-space@v0.5.0 # 使用专门的 Action 替代部分手动 rm
       with:
         # tool-cache: true # 默认是false，如果你的构建不依赖预安装的工具（如特定版本的Go/Python/Node等），可以设置为true来清理更多空间
         # docker-images: true # 如果你的构建不使用Docker，可以设置为true，清理Docker镜像通常能释放大量空间
