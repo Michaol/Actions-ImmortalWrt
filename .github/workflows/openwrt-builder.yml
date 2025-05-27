@@ -1,7 +1,7 @@
 #
 # https://github.com/P3TERX/Actions-OpenWrt
 #
-# File: .github/workflows/openwrt-bulder.yml
+# File: .github/workflows/openwrt-builder.yml  (建议文件名)
 # Description: Build OpenWrt using GitHub Actions
 #
 # Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
@@ -25,7 +25,7 @@ env:
   DIY_P2_SH: diy-part2.sh
   UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: false
+  UPLOAD_RELEASE: false # 如果要创建Release并上传固件，请设置为 true
   TZ: Asia/Shanghai
 
 jobs:
@@ -36,12 +36,8 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4 # 推荐使用特定版本号，目前 v4 是最新稳定版本
 
-    ---
-
-    ## 最大化释放磁盘空间
-
-    此部分是为 OpenWrt 编译任务最大化释放 Runner 磁盘空间的核心优化。
-
+    # --- 最大化释放磁盘空间 ---
+    # 此部分是为 OpenWrt 编译任务最大化释放 Runner 磁盘空间的核心优化。
     - name: Free Up Disk Space (Early Stage)
       uses: jlumbroso/free-disk-space@main # 确保使用此 Action 的最新 main 分支
       with:
@@ -64,10 +60,7 @@ jobs:
         sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo apt autoremove --purge -y # 清理不再需要的依赖包
 
-    ---
-
-    ## 环境初始化
-
+    # --- 环境初始化 ---
     - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
@@ -79,10 +72,7 @@ jobs:
         sudo chown $USER:$GROUPS /workdir
         df -hT $PWD # 再次检查空间，确认清理效果
 
-    ---
-
-    ## 获取 OpenWrt 源码及配置
-
+    # --- 获取 OpenWrt 源码及配置 ---
     - name: Clone source code
       working-directory: /workdir
       run: |
@@ -116,10 +106,7 @@ jobs:
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    ---
-
-    ## 下载软件包及编译
-
+    # --- 下载软件包及编译 ---
     - name: Download package
       id: package
       run: |
@@ -134,28 +121,24 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        make -j$(nproc)
+        make -j$(nproc) V=s # V=s 参数可以输出更详细的编译日志，方便调试
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME | tr ' ' '_')" >> $GITHUB_ENV # 将设备名中的空格替换为下划线
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    ---
-
-    ## 编译后清理与上传
-
+    # --- 编译后清理与上传 ---
     - name: Clean Build Directory after Compile
       if: steps.compile.outputs.status == 'success' # 仅在编译成功后清理，避免影响调试
       run: |
         echo "Cleaning up build artifacts to save space..."
         cd openwrt
-        # 删除所有中间编译文件，只保留 bin 和 dl
+        # 删除所有中间编译文件，只保留 bin 和 dl (如果后续不再需要dl，也可以考虑删除)
         rm -rf build_dir/* # 删除所有架构的编译中间文件
         rm -rf staging_dir/* # 删除所有架构的 staging 文件
         # rm -rf tmp # 编译成功后，tmp 目录也可以删除
         # rm -rf logs # 编译日志也可以删除
-        # rm -rf dl # 如果你确定 dl 目录不再需要，可以删除
-        df -hT $PWD # 再次检查空间使用情况
+        # df -hT $PWD # 再次检查空间使用情况
 
     - name: Check space usage (End of Job)
       if: (!cancelled())
@@ -168,57 +151,56 @@ jobs:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: openwrt/bin
 
-    - name: Organize files
+    - name: Organize files for firmware upload
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages # 再次清理 packages 目录
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        cd openwrt/bin/targets/*/* # 注意：如果编译多个目标，此通配符可能需要调整
+        rm -rf packages # 通常固件包内不再需要 packages 目录的副本
+        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV # 设置环境变量为当前固件路径
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware directory
       uses: actions/upload-artifact@v4 # 最新稳定版本 v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: OpenWrt_firmware${{ env.FIRMWARE }}
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }} # 修正后的 Artifact 名称
+        path: ${{ env.FIRMWARE_PATH }} # 修正：明确指定上传路径
 
-    ---
-
-    ## Release 及旧工作流/Release 清理
-
+    # --- Release 及旧工作流/Release 清理 ---
     - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
-        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        touch release.txt
-        # 移除 GoFile 相关代码，因为它在你的 env 中未定义且无 gpfifo 步骤
+        echo "release_tag=ImmortalWRT_$(date +"%Y.%m.%d-%H%M")${{ env.DEVICE_NAME }}" >> $GITHUB_OUTPUT
+        echo "Release built on $(date +"%Y-%m-%d %H:%M:%S")" > release.txt # Release body 内容
+        # 可在此处添加更多 Release body 内容，例如编译配置摘要等
         # [ ${UPLOAD_GOFILE} = true && ${{ steps.gofile.outputs.url }} ] && echo "🔗 [GoFile](${{ steps.gofile.outputs.url }})" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
-      uses: softprops/action-gh-release@v1 # 建议升级到 @v2
+      uses: softprops/action-gh-release@v2 # 建议使用 v2 或更新版本
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
-        files: ${{ env.FIRMWARE }}/*
+        files: ${{ env.FIRMWARE_PATH }}/* # 从整理后的固件路径上传所有文件
 
     - name: Delete workflow runs
       uses: Mattraks/delete-workflow-runs@v2 # 最新稳定版本 v2
       with:
-        retain_days: 0
-        keep_minimum_runs: 2
+        token: ${{ secrets.GITHUB_TOKEN }} # Mattraks/delete-workflow-runs@v2 需要 token
+        retain_days: 0 # 设置为0会删除所有旧的 runs (除了keep_minimum_runs指定的)
+        keep_minimum_runs: 2 # 保留最近的2次运行记录
 
     - name: Remove old Releases
-      # 注意：dev-drprasad/delete-older-releases 仓库已不再维护
+      # 注意：dev-drprasad/delete-older-releases 仓库已不再积极维护，请注意潜在风险或寻找替代方案
       uses: dev-drprasad/delete-older-releases@v0.3.4
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       with:
-        keep_latest: 3
-        delete_tags: true
+        keep_latest: 3 # 保留最新的3个Release
+        delete_tags: true # 同时删除旧Release关联的tag
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
