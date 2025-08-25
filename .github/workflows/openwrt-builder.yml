@@ -144,18 +144,6 @@ jobs:
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         fi
 
-    # --- 编译后清理与上传 ---
-    - name: Clean Build Directory after Compile
-      if: steps.compile.outputs.status == 'success'
-      run: |
-        echo "Cleaning up build artifacts to save space..."
-        cd openwrt
-        rm -rf build_dir/*
-        rm -rf staging_dir/*
-        # rm -rf tmp
-        # rm -rf logs
-        # df -hT $PWD
-
     - name: Check space usage (End of Job)
       if: (!cancelled())
       run: df -hT
