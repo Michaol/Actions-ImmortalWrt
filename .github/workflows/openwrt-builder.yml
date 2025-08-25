@@ -23,22 +23,21 @@ env:
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: false
+  UPLOAD_BIN_DIR: false       # 优化点: 设为 false，只上传最终固件
   UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: false # 如果要创建Release并上传固件，请设置为 true
+  UPLOAD_RELEASE: false       # 优化点: 设为 false，禁用发布 Release 功能
   TZ: Asia/Shanghai
 
 jobs:
   build:
-    runs-on: ubuntu-24.04 # 确保你已检查过 GitHub Actions 文档，这个标签是最新的且可用的
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4 # 推荐使用特定版本号，目前 v4 是最新稳定版本
+      uses: actions/checkout@v4
 
-    # --- 最大化释放磁盘空间 ---
     - name: Free Up Disk Space (Early Stage)
-      uses: jlumbroso/free-disk-space@main # 确保使用此 Action 的最新 main 分支
+      uses: jlumbroso/free-disk-space@main
       with:
         docker-images: true
         android: true
@@ -53,7 +52,6 @@ jobs:
         sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo apt autoremove --purge -y
 
-    # --- 环境初始化 ---
     - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
@@ -66,7 +64,6 @@ jobs:
         sudo chown $USER:$GROUPS /workdir
         df -hT $PWD
 
-    # --- 获取 OpenWrt 源码及配置 ---
     - name: Clone source code
       working-directory: /workdir
       run: |
@@ -100,7 +97,6 @@ jobs:
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    # --- 下载软件包及编译 ---
     - name: Download package
       id: package
       run: |
@@ -110,7 +106,7 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: Compile the firmware # <--- 主要修改点在此步骤
+    - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
@@ -120,13 +116,13 @@ jobs:
           COMPILE_SUCCESS=true
         else
           echo "Multi-threaded compilation failed. Retrying with single thread and verbose output..."
-          if make -j1 V=s; then # 或者直接用 make V=s，因为不指定-j时默认为-j1
+          if make -j1 V=s; then
             echo "Single-threaded verbose compilation successful!"
             COMPILE_SUCCESS=true
           else
             echo "Compilation failed on both attempts."
             COMPILE_SUCCESS=false
-            exit 1 # 确保如果两次编译都失败，此步骤以失败状态退出
+            exit 1
           fi
         fi
 
@@ -136,59 +132,29 @@ jobs:
           if [ -s DEVICE_NAME_TEMP ]; then
             SANITIZED_DEVICE_NAME=$(cat DEVICE_NAME_TEMP | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')
             echo "DEVICE_NAME=_$SANITIZED_DEVICE_NAME" >> $GITHUB_ENV
-            rm DEVICE_NAME_TEMP # 清理临时文件
+            rm DEVICE_NAME_TEMP
           else
-            echo "DEVICE_NAME=_unknown" >> $GITHUB_ENV # 如果无法确定设备名称，则设置一个默认值
+            echo "DEVICE_NAME=_unknown" >> $GITHUB_ENV
             echo "Warning: Could not determine DEVICE_NAME."
           fi
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         fi
 
-    - name: Check space usage (End of Job)
-      if: (!cancelled())
-      run: df -hT
-
-    - name: Upload bin directory
-      uses: actions/upload-artifact@v4
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
-
     - name: Organize files for firmware upload
       id: organize
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled() # 增加编译成功判断
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        cd openwrt/bin/targets/*/* # 注意：如果编译多个目标，此通配符可能需要调整
+        cd openwrt/bin/targets/*/*
         rm -rf packages
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware directory
       uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success' && !cancelled() # organize步骤成功才执行
+      if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE_PATH }}
-
-    # --- Release 及旧工作流/Release 清理 ---
-    - name: Generate release tag
-      id: tag
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled() # 增加编译成功判断
-      run: |
-        echo "release_tag=ImmortalWRT_$(date +"%Y.%m.%d-%H%M")${{ env.DEVICE_NAME }}" >> $GITHUB_OUTPUT
-        echo "Release built on $(date +"%Y-%m-%d %H:%M:%S")" > release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@v2
-      if: steps.tag.outputs.status == 'success' && !cancelled() # tag步骤成功才执行
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: ${{ env.FIRMWARE_PATH }}/*
 
     - name: Delete workflow runs
       uses: Mattraks/delete-workflow-runs@v2
@@ -196,13 +162,3 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         retain_days: 0
         keep_minimum_runs: 2
-
-    - name: Remove old Releases
-      # 注意：dev-drprasad/delete-older-releases 仓库已不再积极维护
-      uses: dev-drprasad/delete-older-releases@v0.3.4
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled() # 增加编译成功判断
-      with:
-        keep_latest: 3
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
