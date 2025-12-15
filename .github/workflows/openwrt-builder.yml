@@ -37,7 +37,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Free Up Disk Space (Early Stage)
-      uses: jlumbroso/free-disk-space@main
+      uses: jlumbroso/free-disk-space@v1.3.1
       with:
         docker-images: true
         android: true
@@ -58,7 +58,7 @@ jobs:
       run: |
         sudo dpkg --add-architecture i386
         sudo apt-get update
-        sudo -E apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-setuptools rsync swig unzip zlib1g-dev file wget
+        sudo -E apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-setuptools rsync swig unzip zlib1g-dev file wget ccache
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
@@ -70,11 +70,13 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Cache
-      uses: klever1988/cachewrtbuild@main
+    - name: Cache CCache
+      uses: actions/cache@v4
       with:
-        ccache: 'true'
-        prefix: ${{ github.workspace }}/openwrt
+        path: openwrt/.ccache
+        key: openwrt-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+        restore-keys: |
+          openwrt-ccache-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Load custom feeds
       run: |
@@ -93,6 +95,7 @@ jobs:
       run: |
         [ -e files ] && mv files openwrt/files
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+        echo "CONFIG_CCACHE=y" >> openwrt/.config
         chmod +x $DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
@@ -131,13 +134,13 @@ jobs:
           grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME_TEMP
           if [ -s DEVICE_NAME_TEMP ]; then
             SANITIZED_DEVICE_NAME=$(cat DEVICE_NAME_TEMP | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')
-            echo "DEVICE_NAME=_$SANITIZED_DEVICE_NAME" >> $GITHUB_ENV
+            echo "DEVICE_NAME=_$SANITIZED_DEVICE_NAME" >> $GITHUB_OUTPUT
             rm DEVICE_NAME_TEMP
           else
-            echo "DEVICE_NAME=_unknown" >> $GITHUB_ENV
+            echo "DEVICE_NAME=_unknown" >> $GITHUB_OUTPUT
             echo "Warning: Could not determine DEVICE_NAME."
           fi
-          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
         fi
 
     - name: Organize files for firmware upload
@@ -146,15 +149,15 @@ jobs:
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
-        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_OUTPUT
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware directory
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE_PATH }}
+        name: OpenWrt_firmware${{ steps.compile.outputs.DEVICE_NAME }}${{ steps.compile.outputs.FILE_DATE }}
+        path: ${{ steps.organize.outputs.FIRMWARE_PATH }}
 
     - name: Delete workflow runs
       uses: Mattraks/delete-workflow-runs@v2
