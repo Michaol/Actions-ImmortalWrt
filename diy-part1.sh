@@ -11,4 +11,4 @@
 #
 
 # 添加 TCP Brutal feeds 源
-echo "src-git tcp_brutal https://github.com/haruue-net/openwrt-tcp-brutal.git;master" >> feeds.conf.default
+echo "src-git tcp_brutal https://github.com/Michaol/openwrt-tcp-brutal.git;master" >> feeds.conf.default
