@@ -10,5 +10,4 @@
 # See /LICENSE for more information.
 #
 
-# 添加 TCP Brutal feeds 源
-echo "src-git tcp_brutal https://github.com/Michaol/openwrt-tcp-brutal.git;master" >> feeds.conf.default
+
