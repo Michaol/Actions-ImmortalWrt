@@ -145,8 +145,8 @@ jobs:
           cd openwrt/bin/targets/*/*
           # 只保留 EFI combined squashfs 镜像
           mkdir -p firmware_output
-          mv *-squashfs-combined-efi.img.gz firmware_output/ 2>/dev/null || true
-          mv sha256sums firmware_output/ 2>/dev/null || true
+          mv ./*-squashfs-combined-efi.img.gz firmware_output/ 2>/dev/null || true
+          mv ./sha256sums firmware_output/ 2>/dev/null || true
           echo "FIRMWARE_PATH=$PWD/firmware_output" >> $GITHUB_OUTPUT
           echo "status=success" >> $GITHUB_OUTPUT
           ls -la firmware_output/
