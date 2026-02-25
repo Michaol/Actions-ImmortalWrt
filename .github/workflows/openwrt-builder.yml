@@ -33,134 +33,134 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Free Disk Space
-      uses: jlumbroso/free-disk-space@v1.3.1
-      with:
-        tool-cache: true
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        docker-images: true
-        swap-storage: true
+      # - name: Free Disk Space
+      #   uses: jlumbroso/free-disk-space@v1.3.1
+      #   with:
+      #     tool-cache: true
+      #     android: true
+      #     dotnet: true
+      #     haskell: true
+      #     large-packages: true
+      #     docker-images: true
+      #     swap-storage: true
 
-    - name: Initialization environment
-      run: |
-        sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
-        sudo apt-get autoremove --purge -y
-        sudo dpkg --add-architecture i386
-        sudo -E apt-get update
-        sudo -E apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-setuptools rsync swig unzip zlib1g-dev file wget ccache
-        sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
-        df -hT $PWD
+      - name: Initialization environment
+        run: |
+          # sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          # sudo apt-get autoremove --purge -y
+          sudo dpkg --add-architecture i386
+          sudo -E apt-get update
+          sudo -E apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-setuptools rsync swig unzip zlib1g-dev file wget ccache
+          sudo timedatectl set-timezone "$TZ"
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GROUPS /workdir
+          df -hT $PWD
 
-    - name: Clone source code
-      working-directory: /workdir
-      run: |
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+      - name: Clone source code
+        working-directory: /workdir
+        run: |
+          git clone $REPO_URL -b $REPO_BRANCH openwrt
+          ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Cache CCache
-      uses: actions/cache@v4
-      with:
-        path: openwrt/.ccache
-        key: openwrt-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
-        restore-keys: |
-          openwrt-ccache-${{ runner.os }}-${{ runner.arch }}-
+      - name: Cache CCache
+        uses: actions/cache@v4
+        with:
+          path: openwrt/.ccache
+          key: openwrt-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            openwrt-ccache-${{ runner.os }}-${{ runner.arch }}-
 
-    - name: Load custom feeds
-      run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+      - name: Load custom feeds
+        run: |
+          [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+          chmod +x $DIY_P1_SH
+          cd openwrt
+          $GITHUB_WORKSPACE/$DIY_P1_SH
 
-    - name: Update feeds
-      run: cd openwrt && ./scripts/feeds update -a
+      - name: Update feeds
+        run: cd openwrt && ./scripts/feeds update -a
 
-    - name: Install feeds
-      run: cd openwrt && ./scripts/feeds install -a
+      - name: Install feeds
+        run: cd openwrt && ./scripts/feeds install -a
 
-    - name: Load custom configuration
-      run: |
-        [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-        echo "CONFIG_CCACHE=y" >> openwrt/.config
-        chmod +x $DIY_P2_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
+      - name: Load custom configuration
+        run: |
+          [ -e files ] && mv files openwrt/files
+          [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+          echo "CONFIG_CCACHE=y" >> openwrt/.config
+          chmod +x $DIY_P2_SH
+          cd openwrt
+          $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    - name: Download package
-      id: package
-      run: |
-        cd openwrt
-        make defconfig
-        make download -j$(nproc)
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
+      - name: Download package
+        id: package
+        run: |
+          cd openwrt
+          make defconfig
+          make download -j$(nproc)
+          find dl -size -1024c -exec ls -l {} \;
+          find dl -size -1024c -exec rm -f {} \;
 
-    - name: Compile the firmware
-      id: compile
-      run: |
-        cd openwrt
-        echo "Attempting multi-threaded compilation... ($(nproc) threads)"
-        if make -j$(nproc); then
-          echo "Multi-threaded compilation successful!"
-          COMPILE_SUCCESS=true
-        else
-          echo "Multi-threaded compilation failed. Retrying with single thread and verbose output..."
-          if make -j1 V=s; then
-            echo "Single-threaded verbose compilation successful!"
+      - name: Compile the firmware
+        id: compile
+        run: |
+          cd openwrt
+          echo "Attempting multi-threaded compilation... ($(nproc) threads)"
+          if make -j$(nproc); then
+            echo "Multi-threaded compilation successful!"
             COMPILE_SUCCESS=true
           else
-            echo "Compilation failed on both attempts."
-            COMPILE_SUCCESS=false
-            exit 1
+            echo "Multi-threaded compilation failed. Retrying with single thread and verbose output..."
+            if make -j1 V=s; then
+              echo "Single-threaded verbose compilation successful!"
+              COMPILE_SUCCESS=true
+            else
+              echo "Compilation failed on both attempts."
+              COMPILE_SUCCESS=false
+              exit 1
+            fi
           fi
-        fi
 
-        if [ "$COMPILE_SUCCESS" = true ]; then
+          if [ "$COMPILE_SUCCESS" = true ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME_TEMP
+            if [ -s DEVICE_NAME_TEMP ]; then
+              SANITIZED_DEVICE_NAME=$(cat DEVICE_NAME_TEMP | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')
+              echo "DEVICE_NAME=_$SANITIZED_DEVICE_NAME" >> $GITHUB_OUTPUT
+              rm DEVICE_NAME_TEMP
+            else
+              echo "DEVICE_NAME=_unknown" >> $GITHUB_OUTPUT
+              echo "Warning: Could not determine DEVICE_NAME."
+            fi
+            echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Organize files for firmware upload
+        id: organize
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+        run: |
+          cd openwrt/bin/targets/*/*
+          # 只保留 EFI combined squashfs 镜像
+          mkdir -p firmware_output
+          mv *-squashfs-combined-efi.img.gz firmware_output/ 2>/dev/null || true
+          mv sha256sums firmware_output/ 2>/dev/null || true
+          echo "FIRMWARE_PATH=$PWD/firmware_output" >> $GITHUB_OUTPUT
           echo "status=success" >> $GITHUB_OUTPUT
-          grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME_TEMP
-          if [ -s DEVICE_NAME_TEMP ]; then
-            SANITIZED_DEVICE_NAME=$(cat DEVICE_NAME_TEMP | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')
-            echo "DEVICE_NAME=_$SANITIZED_DEVICE_NAME" >> $GITHUB_OUTPUT
-            rm DEVICE_NAME_TEMP
-          else
-            echo "DEVICE_NAME=_unknown" >> $GITHUB_OUTPUT
-            echo "Warning: Could not determine DEVICE_NAME."
-          fi
-          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
-        fi
+          ls -la firmware_output/
 
-    - name: Organize files for firmware upload
-      id: organize
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-      run: |
-        cd openwrt/bin/targets/*/*
-        # 只保留 EFI combined squashfs 镜像
-        mkdir -p firmware_output
-        mv *-squashfs-combined-efi.img.gz firmware_output/ 2>/dev/null || true
-        mv sha256sums firmware_output/ 2>/dev/null || true
-        echo "FIRMWARE_PATH=$PWD/firmware_output" >> $GITHUB_OUTPUT
-        echo "status=success" >> $GITHUB_OUTPUT
-        ls -la firmware_output/
+      - name: Upload firmware directory
+        uses: actions/upload-artifact@v4
+        if: steps.organize.outputs.status == 'success' && !cancelled()
+        with:
+          name: OpenWrt_firmware${{ steps.compile.outputs.DEVICE_NAME }}${{ steps.compile.outputs.FILE_DATE }}
+          path: ${{ steps.organize.outputs.FIRMWARE_PATH }}
 
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: OpenWrt_firmware${{ steps.compile.outputs.DEVICE_NAME }}${{ steps.compile.outputs.FILE_DATE }}
-        path: ${{ steps.organize.outputs.FIRMWARE_PATH }}
-
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        retain_days: 0
-        keep_minimum_runs: 2
+      - name: Delete workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          retain_days: 0
+          keep_minimum_runs: 2
