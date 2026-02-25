@@ -1,4 +1,0 @@
-
-  build	Compile the firmware	2026-02-25T10:09:24.7604067Z make[1]: Leaving directory '/workdir/openwrt'
-> build	Compile the firmware	2026-02-25T10:09:24.7611741Z make: *** [/workdir/openwrt/include/toplevel.mk:233: world] Error 2
-
