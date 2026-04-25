@@ -31,3 +31,7 @@ git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 #git clone -b main https://github.com/xiaorouji/openwrt-passwall.git feeds/luci/applications/passwall
 #mv feeds/luci/applications/passwall/luci-app-passwall feeds/luci/applications/
 #rm -rf feeds/luci/applications/passwall
+
+# Fix util-linux AT_HANDLE_FID on musl (Issue #23058)
+mkdir -p package/utils/util-linux/patches
+wget -qO package/utils/util-linux/patches/0002-nsenter-Fix-AT_HANDLE_FID-on-musl.patch https://github.com/util-linux/util-linux/commit/5452239f6e69d2d3aaa427d2d2253247cfb7cb7b.patch
