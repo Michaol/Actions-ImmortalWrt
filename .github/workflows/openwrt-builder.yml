@@ -34,7 +34,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # - name: Free Disk Space
       #   uses: jlumbroso/free-disk-space@v1.3.1
@@ -66,7 +66,7 @@ jobs:
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
       - name: Cache CCache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: openwrt/.ccache
           key: openwrt-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
@@ -152,7 +152,7 @@ jobs:
           ls -la firmware_output/
 
       - name: Upload firmware directory
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: steps.organize.outputs.status == 'success' && !cancelled()
         with:
           name: OpenWrt_firmware${{ steps.compile.outputs.DEVICE_NAME }}${{ steps.compile.outputs.FILE_DATE }}
