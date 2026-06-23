@@ -26,8 +26,8 @@ find ./ | grep Makefile | grep mosdns | xargs rm -f
 git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 
-# Replace passwall
-#rm -rf feeds/luci/applications/luci-app-passwall
-#git clone -b main https://github.com/xiaorouji/openwrt-passwall.git feeds/luci/applications/passwall
-#mv feeds/luci/applications/passwall/luci-app-passwall feeds/luci/applications/
-#rm -rf feeds/luci/applications/passwall
+# Resolve conflict: Openwrt-Passwall feed (added in diy-part1.sh as passwall_luci)
+# also ships luci-app-passwall, which duplicates immortalwrt's bundled copy.
+# Remove only the feed's UI so immortalwrt's luci-app-passwall is used, while
+# keeping the core passwall package and proxy binaries from the external feeds.
+rm -rf feeds/passwall_luci/luci-app-passwall
