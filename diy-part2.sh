@@ -26,8 +26,9 @@ find ./ | grep Makefile | grep mosdns | xargs rm -f
 git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 
-# Resolve conflict: Openwrt-Passwall feed (added in diy-part1.sh as passwall_luci)
-# also ships luci-app-passwall, which duplicates immortalwrt's bundled copy.
-# Remove only the feed's UI so immortalwrt's luci-app-passwall is used, while
-# keeping the core passwall package and proxy binaries from the external feeds.
-rm -rf feeds/passwall_luci/luci-app-passwall
+# Passwall luci-app: use official Openwrt-Passwall feed (passwall_luci, newer than
+# immortalwrt bundled). Do NOT delete it — let it install normally so defconfig
+# can expand INCLUDE_* options. INCLUDE_ShadowsocksR_Libev_Client is set to
+# 'not set' in .config to avoid pulling shadowsocksr-libev (build failure).
+# (Previously rm -rf feeds/passwall_luci/luci-app-passwall here — broke install
+# symlink, caused passwall to vanish from defconfig. Removed 2026-07-26.)
