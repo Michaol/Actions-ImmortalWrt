@@ -73,6 +73,24 @@ jobs:
           restore-keys: |
             openwrt-ccache-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Cache Go build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-build-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            go-build-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache dl
+        uses: actions/cache@v5
+        with:
+          path: openwrt/dl
+          key: dl-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            dl-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Load custom feeds
         run: |
           [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
@@ -137,6 +155,20 @@ jobs:
             fi
             echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
           fi
+
+      - name: CCache statistics
+        if: steps.compile.outputs.status == 'success' && !cancelled()
+        run: |
+          cd openwrt
+          CCACHE_DIR=$PWD/.ccache ccache -s -v > /tmp/ccache-stats.txt 2>&1 || true
+          cat /tmp/ccache-stats.txt
+
+      - name: Upload CCache stats
+        uses: actions/upload-artifact@v7
+        if: steps.compile.outputs.status == 'success' && !cancelled()
+        with:
+          name: ccache-stats${{ steps.compile.outputs.FILE_DATE }}
+          path: /tmp/ccache-stats.txt
 
       - name: Organize files for firmware upload
         id: organize
