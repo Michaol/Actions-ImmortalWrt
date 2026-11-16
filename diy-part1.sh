@@ -9,14 +9,18 @@
 # This is free software, licensed under the MIT License.
 # See /LICENSE for more information.
 #
-# Passwall - add official Openwrt-Passwall feeds at TOP of feeds.conf.default.
-# The luci-app UI part of this feed will be dropped in diy-part2.sh so the
-# immortalwrt-bundled luci-app-passwall (newer) is used instead.
-sed -i '1i src-git daeuniverse https://github.com/daeuniverse/openwrt-packages.git;main' feeds.conf.default
-sed -i '1i src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main' feeds.conf.default
-sed -i '1i src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main' feeds.conf.default
+set -e
+
+FEEDS=feeds.conf.default
+
+# Add idempotently so this script is safe to run more than once.
+grep -q '^src-git daeuniverse ' "$FEEDS" ||
+  sed -i '1i src-git daeuniverse https://github.com/daeuniverse/openwrt-packages.git;main' "$FEEDS"
+grep -q '^src-git passwall_luci ' "$FEEDS" ||
+  sed -i '1i src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main' "$FEEDS"
+grep -q '^src-git passwall_packages ' "$FEEDS" ||
+  sed -i '1i src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main' "$FEEDS"
 
 # This router does not need the desktop/video packages, and Qt5 currently has
 # a recursive Kconfig dependency when the video feed is installed.
-sed -i '/^src-git video /s/^/#/' feeds.conf.default
-
+sed -i '/^src-git video /s/^/#/' "$FEEDS"
