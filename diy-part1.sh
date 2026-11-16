@@ -14,8 +14,6 @@ set -e
 FEEDS=feeds.conf.default
 
 # Add idempotently so this script is safe to run more than once.
-grep -q '^src-git daeuniverse ' "$FEEDS" ||
-  sed -i '1i src-git daeuniverse https://github.com/daeuniverse/openwrt-packages.git;main' "$FEEDS"
 grep -q '^src-git passwall_luci ' "$FEEDS" ||
   sed -i '1i src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main' "$FEEDS"
 grep -q '^src-git passwall_packages ' "$FEEDS" ||
