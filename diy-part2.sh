@@ -36,13 +36,13 @@ git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 #    undefined and every "if FWKNOPD_*" select/depends edge becomes inactive.
 #  - squeezelite-custom: make its feature menu unconditional so the options no
 #    longer depend back on PACKAGE_squeezelite-custom.
-sed -i 's|^define Package/fwknopd/config$|define Package/fwknopd/config-disabled|' \
+sed -i 's|^define Package/fwknopd/config[[:space:]]*$|define Package/fwknopd/config-disabled|' \
   feeds/packages/net/fwknop/Makefile
-sed -i 's|^\t\tif PACKAGE_squeezelite-custom$|\t\tif y|' \
+sed -i 's|^[[:space:]]*if PACKAGE_squeezelite-custom[[:space:]]*$|\tif y|' \
   feeds/packages/sound/squeezelite/Makefile
 
 grep -q '^define Package/fwknopd/config-disabled$' feeds/packages/net/fwknop/Makefile
-grep -q '^		if y$' feeds/packages/sound/squeezelite/Makefile
+grep -qE '^[[:space:]]*if y[[:space:]]*$' feeds/packages/sound/squeezelite/Makefile
 
 # Passwall luci-app: use official Openwrt-Passwall feed (passwall_luci, newer than
 # immortalwrt bundled). Do NOT delete it — let it install normally so defconfig
