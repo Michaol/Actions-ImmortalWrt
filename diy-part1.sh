@@ -16,3 +16,7 @@ sed -i '1i src-git daeuniverse https://github.com/daeuniverse/openwrt-packages.g
 sed -i '1i src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main' feeds.conf.default
 sed -i '1i src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main' feeds.conf.default
 
+# This router does not need the desktop/video packages, and Qt5 currently has
+# a recursive Kconfig dependency when the video feed is installed.
+sed -i '/^src-git video /s/^/#/' feeds.conf.default
+
