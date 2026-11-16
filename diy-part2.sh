@@ -38,7 +38,7 @@ git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 #    longer depend back on PACKAGE_squeezelite-custom.
 sed -i 's|^define Package/fwknopd/config[[:space:]]*$|define Package/fwknopd/config-disabled|' \
   feeds/packages/net/fwknop/Makefile
-sed -i 's|^[[:space:]]*if PACKAGE_squeezelite-custom[[:space:]]*$|\tif y|' \
+sed -i 's|^[[:space:]]*if PACKAGE_squeezelite-custom[[:space:]]*$|if y|' \
   feeds/packages/sound/squeezelite/Makefile
 
 grep -q '^define Package/fwknopd/config-disabled$' feeds/packages/net/fwknop/Makefile
