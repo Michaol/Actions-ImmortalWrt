@@ -28,17 +28,16 @@ find ./ | grep Makefile | grep mosdns | xargs -r rm -f
 git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 
-# Current packages-feed Kconfig has two recursive dependencies. Both packages
-# are disabled in this image, but Kconfig still validates their declarations.
-# Remove the reverse dependency from each option while keeping it disabled.
-sed -i '/^[[:space:]]*depends on PACKAGE_fwknopd || PACKAGE_fwknop[[:space:]]*$/d' \
-  feeds/packages/net/fwknop/Config.in
-sed -i 's/^[[:space:]]*if PACKAGE_squeezelite-custom[[:space:]]*$/if y/' \
-  feeds/packages/sound/squeezelite/Makefile
+# These unused packages currently make Kconfig fail globally with recursive
+# dependencies. Remove only their generated package/feeds links; the feed
+# checkouts stay intact and can be reinstalled later if needed.
+rm -rf package/feeds/packages/fwknop
+rm -rf package/feeds/packages/squeezelite
+rm -rf package/feeds/luci/luci-app-fwknopd
 
-grep -q 'PACKAGE_fwknopd || PACKAGE_fwknop' \
-  feeds/packages/net/fwknop/Config.in && exit 1
-grep -q '^if y$' feeds/packages/sound/squeezelite/Makefile
+test ! -e package/feeds/packages/fwknop
+test ! -e package/feeds/packages/squeezelite
+test ! -e package/feeds/luci/luci-app-fwknopd
 
 # Passwall luci-app: use official Openwrt-Passwall feed (passwall_luci, newer than
 # immortalwrt bundled). Do NOT delete it — let it install normally so defconfig
