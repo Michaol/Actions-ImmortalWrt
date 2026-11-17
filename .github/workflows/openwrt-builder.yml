@@ -83,13 +83,19 @@ jobs:
           restore-keys: |
             go-build-${{ runner.os }}-${{ runner.arch }}-
 
+      # Do NOT cache dl/go-mod-cache: a make abort mid-download leaves partial
+      # module trees there, and restoring that corrupted cache breaks later Go
+      # packages (geoview / sing-box "no required module provides package").
+      # Cache only the source tarballs; Go modules re-download each run.
       - name: Cache dl
         uses: actions/cache@v5
         with:
-          path: openwrt/dl
-          key: dl-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          path: |
+            openwrt/dl
+            !openwrt/dl/go-mod-cache
+          key: dl-${{ runner.os }}-${{ runner.arch }}-v2-${{ github.run_id }}
           restore-keys: |
-            dl-${{ runner.os }}-${{ runner.arch }}-
+            dl-${{ runner.os }}-${{ runner.arch }}-v2-
 
       - name: Load custom feeds
         run: |
@@ -126,12 +132,15 @@ jobs:
         id: compile
         run: |
           cd openwrt
+          # Drop any leftover partial Go module cache before building.
+          rm -rf dl/go-mod-cache
           echo "Attempting multi-threaded compilation... ($(nproc) threads)"
           if make -j$(nproc); then
             echo "Multi-threaded compilation successful!"
             COMPILE_SUCCESS=true
           else
             echo "Multi-threaded compilation failed. Retrying with single thread and verbose output..."
+            rm -rf dl/go-mod-cache
             if make -j1 V=s; then
               echo "Single-threaded verbose compilation successful!"
               COMPILE_SUCCESS=true
